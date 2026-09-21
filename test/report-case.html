@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>社區通報</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EDF1EF;--card:#FFFFFF;--ink:#16211E;--muted:#5E6B67;--line:#D2DAD6;
+  --pine:#0E2A26;--pine-soft:#1C4740;--focus:#2E7D6E;
+  --pending:#9A6608;--pending-bg:#FBF0D8;
+  --resolved:#166B45;--resolved-bg:#DFF0E6;
+  --rejected:#AE2E25;--rejected-bg:#FBE3E1;
+  --radius:10px;--mono:'IBM Plex Mono','Noto Sans TC',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0C1614;--card:#141F1C;--ink:#E6EDEA;--muted:#93A29D;--line:#26352F;
+    --pine:#081311;--pine-soft:#1B3A34;--focus:#4FB39F;
+    --pending:#E2B15C;--pending-bg:#2A2313;--resolved:#68C293;--resolved-bg:#12291E;
+    --rejected:#E88A80;--rejected-bg:#2C1614;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0C1614;--card:#141F1C;--ink:#E6EDEA;--muted:#93A29D;--line:#26352F;
+  --pine:#081311;--pine-soft:#1B3A34;--focus:#4FB39F;
+  --pending:#E2B15C;--pending-bg:#2A2313;--resolved:#68C293;--resolved-bg:#12291E;
+  --rejected:#E88A80;--rejected-bg:#2C1614;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font-family:'Noto Sans TC',system-ui,-apple-system,'Microsoft JhengHei',sans-serif;
+  font-size:16px;line-height:1.65;-webkit-text-size-adjust:100%}
+.wrap{max-width:720px;margin:0 auto;padding:0 18px 72px}
+header{background:var(--pine);color:#EAF2EF;padding:22px 0 26px;margin-bottom:26px}
+header .wrap{padding-bottom:0}
+h1{font-size:23px;font-weight:700;letter-spacing:.02em;margin:0}
+header p{margin:2px 0 0;font-size:13.5px;color:#9FBAB3}
+form{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+fieldset{border:0;border-top:1px solid var(--line);margin:0;padding:22px 20px}
+fieldset:first-of-type{border-top:0}
+legend{font-size:15px;font-weight:700;padding:0;margin-bottom:3px}
+.hint{color:var(--muted);font-size:13px;margin:0 0 14px}
+label{display:block;font-size:14px;font-weight:500;margin-bottom:6px}
+input[type=text],input[type=password],textarea{
+  width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:8px;padding:11px 12px}
+textarea{min-height:130px;resize:vertical;line-height:1.7}
+input:focus-visible,textarea:focus-visible,button:focus-visible,.chip:focus-visible{
+  outline:2px solid var(--focus);outline-offset:2px}
+.count{float:right;font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+.chips{display:flex;flex-wrap:wrap;gap:9px}
+.chip{--c:var(--muted);display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  border:1.5px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:999px;padding:8px 15px 8px 12px;font:inherit;font-size:14.5px}
+.chip .dot{width:9px;height:9px;border-radius:50%;background:var(--c);flex:none}
+.chip[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.chip[aria-pressed="true"] .dot{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 22%,transparent)}
+.loading{color:var(--muted);font-size:14px}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:18px;text-align:center;
+  color:var(--muted);font-size:14px;cursor:pointer;background:transparent;width:100%;font-family:inherit}
+.drop:hover{border-color:var(--focus);color:var(--ink)}
+.thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.thumb{position:relative;width:84px;height:84px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb button{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
+  border:0;background:rgba(10,20,18,.72);color:#fff;font-size:14px;line-height:1;cursor:pointer}
+.row{display:flex;gap:9px;align-items:stretch}
+.row input{flex:1;min-width:0}
+.ghost{border:1px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:8px;padding:0 14px;font:inherit;font-size:14px;cursor:pointer;white-space:nowrap}
+.ghost:hover{border-color:var(--focus)}
+.actions{padding:18px 20px 22px;border-top:1px solid var(--line);
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.submit{background:var(--pine-soft);color:#F2F8F6;border:0;border-radius:8px;
+  padding:13px 26px;font:inherit;font-size:16px;font-weight:500;cursor:pointer}
+.submit:hover{background:var(--pine)}
+.submit:disabled{opacity:.5;cursor:not-allowed}
+.err{color:var(--rejected);font-size:13.5px;margin:0}
+h2{font-size:17px;font-weight:700;margin:38px 0 4px}
+.sub{color:var(--muted);font-size:13.5px;margin:0 0 14px}
+.empty{border:1px dashed var(--line);border-radius:var(--radius);padding:26px 20px;color:var(--muted);font-size:14px}
+.case{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px;margin-bottom:11px}
+.case-top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.tag{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500}
+.tag .dot{width:8px;height:8px;border-radius:50%}
+.status{font-size:12.5px;font-weight:500;padding:3px 10px;border-radius:999px}
+.status.pending{color:var(--pending);background:var(--pending-bg)}
+.status.processing{color:var(--pending);background:var(--pending-bg)}
+.status.resolved{color:var(--resolved);background:var(--resolved-bg)}
+.status.rejected{color:var(--rejected);background:var(--rejected-bg)}
+.case p{margin:0 0 8px;font-size:14.5px;white-space:pre-wrap}
+.meta{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.reject{margin-top:9px;padding:9px 11px;border-radius:7px;background:var(--rejected-bg);color:var(--rejected);font-size:13.5px}
+details{margin-top:30px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card)}
+summary{cursor:pointer;padding:13px 17px;font-size:14.5px;font-weight:500}
+summary::marker{color:var(--muted)}
+details .body{padding:0 17px 16px}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.65;background:var(--paper);
+  border:1px solid var(--line);border-radius:8px;padding:13px;overflow-x:auto;margin:0 0 12px}
+details h3{font-size:13px;font-weight:500;color:var(--muted);margin:14px 0 6px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  background:var(--pine);color:#EAF2EF;padding:11px 20px;border-radius:999px;
+  font-size:14.5px;opacity:0;pointer-events:none;transition:opacity .22s ease;max-width:90vw}
+.toast.on{opacity:1}
+.chat-fab{position:fixed;right:18px;bottom:18px;z-index:60;width:58px;height:58px;border-radius:50%;
+  border:0;background:var(--pine-soft);color:#F2F8F6;font-size:16px;font-weight:700;cursor:pointer;
+  box-shadow:0 6px 18px rgba(0,0,0,.28)}
+.chat-fab:hover{background:var(--pine)}
+.chat{position:fixed;right:18px;bottom:86px;z-index:60;width:min(380px,calc(100vw - 36px));
+  height:min(600px,calc(100vh - 120px));display:none;flex-direction:column;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  box-shadow:0 12px 40px rgba(0,0,0,.32)}
+.chat.open{display:flex}
+.chat .chat-head{background:var(--pine);color:#EAF2EF;padding:12px 16px;display:flex;
+  align-items:center;justify-content:space-between;gap:10px}
+.chat .chat-head h3{margin:0;font-size:15px}
+.chat .chat-head .sub{color:#9FBAB3;font-size:12px;margin:3px 0 0}
+.chat .chat-head button{border:0;background:transparent;color:#9FBAB3;font-size:22px;line-height:1;cursor:pointer;padding:2px}
+.chat .chat-head button:hover{color:#EAF2EF}
+.chat .msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--paper)}
+.msg{max-width:88%;padding:9px 12px;border-radius:12px;font-size:14.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.msg.bot{background:var(--card);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.me{background:var(--pine-soft);color:#F2F8F6;align-self:flex-end;border-bottom-right-radius:4px}
+.msg.err{background:var(--rejected-bg);color:var(--rejected);align-self:flex-start}
+.msg.typing{color:var(--muted);align-self:flex-start}
+.quick{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px 10px;border-top:1px solid var(--line)}
+.quick button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;
+  font:inherit;font-size:12.5px;padding:5px 11px;cursor:pointer}
+.quick button:hover{border-color:var(--focus)}
+.chat .input{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--card)}
+.chat .input input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:9px 12px;
+  font:inherit;font-size:14.5px;background:var(--card);color:var(--ink)}
+.chat .input button{border:0;background:var(--pine-soft);color:#F2F8F6;border-radius:8px;padding:0 18px;
+  font:inherit;font-size:14.5px;font-weight:500;cursor:pointer}
+.chat .input button:hover{background:var(--pine)}
+.chat .input button:disabled{opacity:.5;cursor:not-allowed}
+.chat .input input:disabled{opacity:.6}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>社區通報</h1>
+    <p>看到問題，拍下來，讓負責的人知道。</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<form id="form" novalidate>
+  <fieldset>
+    <legend>登入帳號</legend>
+    <p class="hint">只能是英文字母和數字，會記錄成這筆案件的發布者。</p>
+    <label for="acct">帳號</label>
+    <input type="text" id="acct" value="test1" autocomplete="username" spellcheck="false">
+  </fieldset>
+
+  <fieldset>
+    <legend>照片</legend>
+    <p class="hint">最多 5 張。上傳後按下方按鈕，AI 會判讀照片、自動幫你選類別和寫描述。</p>
+    <button type="button" class="drop" id="drop">點這裡選照片，或直接拍一張</button>
+    <input type="file" id="files" accept="image/*" multiple hidden>
+    <div class="thumbs" id="thumbs"></div>
+    <button type="button" class="submit" id="analyzeBtn" style="width:100%;margin-top:14px;background:var(--pine-soft)">用 AI 分析並帶入表單</button>
+    <p class="err" id="analyzeErr" style="margin-top:9px"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>你要通報什麼？</legend>
+    <p class="hint">AI 分析後會自動選好，也可以自己改選。</p>
+    <div class="chips" id="chips" role="group" aria-label="申報類別">
+      <span class="loading">類別載入中…</span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>發生了什麼事</legend>
+    <p class="hint">AI 會依照片先寫一版，看不對的地方直接改。</p>
+    <label for="desc">問題描述<span class="count"><span id="dcount">0</span> 字</span></label>
+    <textarea id="desc" placeholder="例：中正路 12 巷口的路燈從上週三晚上就不亮，整段巷子入夜後幾乎全黑，機車進出看不到路面。"></textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>地點</legend>
+    <p class="hint">沒有門牌就寫最近的路口或明顯地標。</p>
+    <label for="addr">地址</label>
+    <div class="row">
+      <input type="text" id="addr" placeholder="台南市中西區中正路 12 巷">
+      <button type="button" class="ghost" id="geo">用目前位置</button>
+    </div>
+  </fieldset>
+
+  <div class="actions">
+    <button type="submit" class="submit" id="send">送出通報</button>
+    <p class="err" id="err" role="alert"></p>
+  </div>
+</form>
+
+<h2>我的通報</h2>
+<p class="sub">狀態由承辦人員更新，這裡只顯示目前帳號的案件。</p>
+<div id="list"></div>
+
+<details>
+  <summary>後端需要實作的 API 與 SQL</summary>
+  <div class="body">
+    <h3>送出時會 POST 的 request body</h3>
+    <pre id="json">先填表單，這裡會即時顯示。</pre>
+    <h3>伺服器端對應的 INSERT</h3>
+    <pre id="sql">—</pre>
+    <p class="sub" style="margin:0">
+      前端所有碰資料庫的地方都集中在原始碼開頭標記 🔌 的區塊，共五支 API，
+      每一支旁邊都寫好對應的 SQL。改好後把 <code>USE_MOCK</code> 設成 <code>false</code>。
+    </p>
+  </div>
+</details>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<button type="button" class="chat-fab" id="chatFab" aria-label="開啟 AI 助理">AI</button>
+<div class="chat" id="chat" role="dialog" aria-label="AI 助理">
+  <div class="chat-head">
+    <div>
+      <h3>社區小尖兵 AI</h3>
+      <p class="sub">問通報流程、查案件、搜尋資訊</p>
+    </div>
+    <button type="button" id="chatClose" aria-label="關閉">×</button>
+  </div>
+  <div class="msgs" id="chatMsgs"></div>
+  <div class="quick" id="chatQuick">
+    <button type="button">路燈壞了要怎麼通報？</button>
+    <button type="button">查 test1 的通報案件</button>
+  </div>
+  <div class="input">
+    <input id="chatInput" placeholder="輸入問題…（Enter 送出）" autocomplete="off">
+    <button type="button" id="chatSend">送出</button>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   🔌 PostgreSQL 接點區
+   ------------------------------------------------------------------
+   整個頁面只有這一區會碰到資料庫。把 USE_MOCK 改成 false 之後，
+   下面五支 api* 函式就會改打真的後端；每一支都附了後端該跑的 SQL。
+   Mock 模式用 localStorage 假裝有資料庫，方便先看流程。
+   ══════════════════════════════════════════════════════════════════ */
+
+const USE_MOCK  = false;         // 🔌 後端已接好（categories / uploads / cases）
+const API_BASE  = '/api';        // 🔌 後端網址，跨網域時改成 'http://localhost:8000/api'
+const MAX_IMAGES = 5;
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 1 / 讀取申報類別字典表  →  GET /api/categories
+   回傳: [{ categories_id, key_name, label, color_code }, ...]
+
+   後端 SQL:
+     SELECT categories_id, key_name, label, color_code
+     FROM categories
+     ORDER BY categories_id;
+   ─────────────────────────────────────────────────────────────────── */
+async function apiGetCategories(){
+  // 類別優先打後端（讀 community_envoys 資料庫的 categories 表），失敗才退回 mock。
+  try {
+    const r = await fetch(API_BASE + '/categories');
+    if (r.ok) return r.json();
+  } catch (_) { /* 後端未啟動 */ }
+  return MOCK.categories();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 1b / AI 分析照片 → 帶入表單  →  POST /api/ai-analyze
+   送出: { images: ['data:image/jpeg;base64,...', ...] }
+   回傳: { category_id, key_name, label, description }
+
+   後端做的事：把照片交給本機 Ollama 視覺模型，並參考 categories 表
+   選出最相符的類別、寫出問題描述。前端不直接碰 Ollama。
+   ─────────────────────────────────────────────────────────────────── */
+async function apiAnalyze(images){
+  const r = await fetch(API_BASE + '/ai-analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ images })
+  });
+  if (!r.ok){
+    const detail = await r.json().catch(() => null);
+    throw new Error(detail && detail.detail ? detail.detail : 'AI 分析失敗（' + r.status + '）');
+  }
+  return r.json();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 2 / 上傳照片  →  POST /api/uploads  (multipart/form-data)
+   回傳: { paths: ['uploads/202609/xxxx.jpg', ...] }
+
+   後端做的事：檔案傳給 GCS（無憑證時可暫存本機），回傳物件路徑；
+   路徑陣列才寫進 cases.images (JSONB)。檔名/路徑一律由後端決定。
+   ─────────────────────────────────────────────────────────────────── */
+async function apiUploadImages(files){
+  if (!files.length) return [];
+  if (USE_MOCK) return MOCK.upload(files);
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  const r = await fetch(API_BASE + '/uploads', { method:'POST', body: fd });
+  if (!r.ok) throw new Error('照片上傳失敗（' + r.status + '）');
+  return (await r.json()).paths;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 3 / 建立案件  →  POST /api/cases   (application/json)
+   送出: { description, category_id, images, address, author_account }
+   回傳: 完整案件物件（含後端產生的 cases_id、created_at、status）
+
+   後端 SQL（cases_id 與 created_at 由後端產生，不要信前端傳的值）:
+     INSERT INTO cases
+       (cases_id, description, embedding, category_id, images,
+        status, created_at, author_account, address)
+     VALUES
+       ($1, $2, $3::vector, $4, $5::jsonb,
+        'pending', $6, $7, $8)
+     RETURNING *;
+
+   embedding 的來源：後端拿 description 去呼叫 1024 維的 embedding 模型
+   （BGE-m3、Cohere embed v3 之類），算完再填 $3；前端不送、也不該送。
+   若模型呼叫較慢，可以先寫 NULL，另開背景工作補上。
+
+   別忘了先建索引，不然 RAG 語意搜尋會整表掃描：
+     CREATE INDEX idx_cases_embedding ON cases
+       USING hnsw (embedding vector_cosine_ops);
+   ─────────────────────────────────────────────────────────────────── */
+async function apiCreateCase(body){
+  if (USE_MOCK) return MOCK.createCase(body);
+  const r = await fetch(API_BASE + '/cases', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error((await r.text()) || '送出失敗（' + r.status + '）');
+  return r.json();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 4 / 讀取我的案件  →  GET /api/cases?author_account=xxx
+   回傳: [{ cases_id, description, category_id, images, status,
+            created_at, address, reject_reason }, ...]
+
+   後端 SQL（不要 SELECT embedding，1024 維傳到前端只是浪費頻寬）:
+     SELECT c.cases_id, c.description, c.category_id, c.images,
+            c.status, c.created_at, c.address, c.reject_reason
+     FROM cases c
+     WHERE c.author_account = $1
+     ORDER BY c.created_at DESC
+     LIMIT 50;
+
+   加個索引會快很多:
+     CREATE INDEX idx_cases_author_created
+       ON cases (author_account, created_at DESC);
+   ─────────────────────────────────────────────────────────────────── */
+async function apiGetMyCases(account){
+  if (USE_MOCK) return MOCK.myCases(account);
+  const r = await fetch(API_BASE + '/cases?author_account=' + encodeURIComponent(account));
+  if (!r.ok) throw new Error('案件載入失敗（' + r.status + '）');
+  return r.json();
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   🔌 5 / 登入（本頁尚未串，先留著）  →  POST /api/login
+   送出: { account, password }   回傳: { account, name, role }
+
+   後端 SQL:
+     SELECT account, password, name, role, is_suspended
+     FROM users
+     WHERE account = $1;
+
+   ⚠️ 三件事：
+     1. password 欄位存的是雜湊，用 bcrypt / argon2 比對，絕不比對明文。
+     2. 比對成功後要再檢查 is_suspended，被停權的帳號不能通報。
+     3. 帳號查無資料與密碼錯誤要回同一種錯誤訊息，避免被枚舉帳號。
+   ─────────────────────────────────────────────────────────────────── */
+async function apiLogin(account, password){
+  if (USE_MOCK) return { account, name: account, role: 'resident' };
+  const r = await fetch(API_BASE + '/login', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ account, password })
+  });
+  if (!r.ok) throw new Error('帳號或密碼不正確');
+  return r.json();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   🔌 Mock 資料層 — 接上真後端之後整塊可以刪掉
+   ══════════════════════════════════════════════════════════════════ */
+const MOCK = {
+  KEY: 'cases:mock',
+  /* 對應 categories 表的 seed 資料 */
+  categories: () => ([
+    { categories_id:1, key_name:'road_damage',     label:'路面損壞',     color_code:'#FFA500' },
+    { categories_id:2, key_name:'street_light',    label:'路燈故障',     color_code:'#F59E0B' },
+    { categories_id:3, key_name:'waterlogging',    label:'積水',         color_code:'#3B82F6' },
+    { categories_id:4, key_name:'garbage',         label:'垃圾',         color_code:'#10B981' },
+    { categories_id:5, key_name:'illegal_dump',    label:'違規堆放',     color_code:'#8B5CF6' },
+    { categories_id:6, key_name:'facility_damage', label:'公共設施損壞', color_code:'#EC4899' },
+    { categories_id:7, key_name:'fallen_tree',     label:'樹木倒塌',     color_code:'#84CC16' },
+    { categories_id:8, key_name:'other',           label:'其他',         color_code:'#6B7280' }
+  ]),
+  upload: files => files.map(f =>
+    'https://storage.googleapis.com/community-reports/' + Date.now() + '-' + f.name),
+  all(){ try { return JSON.parse(localStorage.getItem(this.KEY)) || []; } catch(e){ return []; } },
+  createCase(body){
+    const ts = Date.now();
+    const row = { ...body, cases_id: ts * 10 + Math.floor(Math.random()*10),
+                  created_at: ts, status: 'pending', reject_reason: null };
+    const rows = this.all(); rows.unshift(row);
+    try { localStorage.setItem(this.KEY, JSON.stringify(rows.slice(0,50))); } catch(e){}
+    return row;
+  },
+  myCases(account){
+    return this.all().filter(c => c.author_account === account)
+                     .sort((a,b) => b.created_at - a.created_at);
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   以下是畫面邏輯，接後端時不用動
+   ══════════════════════════════════════════════════════════════════ */
+const STATUS_LABEL = { pending:'待處理', processing:'處理中', resolved:'已處理', rejected:'已駁回' };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+
+let CATEGORIES = [];
+let selected = null;
+let picked = [];   // { file, url }
+
+async function boot(){
+  try {
+    CATEGORIES = await apiGetCategories();
+    drawChips();
+  } catch (e) {
+    $('chips').innerHTML = '<span class="err">' + esc(e.message) + '，重新整理再試一次。</span>';
+  }
+  refreshCases();
+  preview();
+  applyPendingFill();       // 若網址參數或 AI 在類別載入前就呼叫過，這裡補套用
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   🤖 本地 AI 代填區
+   ------------------------------------------------------------------
+   給本機助理（瀏覽器擴充功能、Claude in Chrome、其他 agent）用的接口，
+   不會替你送出表單，只填欄位、選類別、貼描述，最後仍由使用者按送出確認。
+
+   用法一 — 網址參數（開頁面時就帶資料進來）:
+     report-case.html?account=test1&category=street_light
+       &description=巷口路燈壞了三天&address=中正路12巷
+
+   用法二 — JS 函式（頁面開著時，由本地程式呼叫）:
+     window.fillReport({
+       account: 'test1',
+       category: 'street_light',   // 對應 categories.key_name，如 road_damage / waterlogging / garbage ...
+       description: '巷口路燈壞了三天',
+       address: '中正路 12 巷'
+     });
+     回傳 { ok: true } 或 { ok: false, reason: '...' }（例如類別名稱對不上時）。
+
+   用法三 — postMessage（頁面被包在 iframe 裡時）:
+     iframe.contentWindow.postMessage(
+       { type: 'FILL_REPORT', payload: { account, category, description, address } },
+       '*'
+     );
+   ══════════════════════════════════════════════════════════════════ */
+let pendingFill = null;
+
+function fillReport(data){
+  data = data || {};
+  if (!CATEGORIES.length){ pendingFill = data; return { ok:true, note:'類別尚未載入，將於載入後套用' }; }
+
+  if (data.account != null) $('acct').value = String(data.account).trim();
+
+  if (data.category != null){
+    const key = String(data.category).trim().toLowerCase();
+    const cat = CATEGORIES.find(c =>
+      c.key_name.toLowerCase() === key || c.label === data.category);
+    if (!cat) return { ok:false, reason: '找不到符合的類別：' + data.category };
+    selected = cat.categories_id;
+    document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed','false'));
+    const idx = CATEGORIES.indexOf(cat);
+    const btn = $('chips').children[idx];
+    if (btn) btn.setAttribute('aria-pressed','true');
+  }
+
+  if (data.description != null){
+    $('desc').value = String(data.description);
+    $('dcount').textContent = $('desc').value.length;
+  }
+  if (data.address != null) $('addr').value = String(data.address);
+
+  preview();
+  refreshCases();
+  toast('已自動帶入通報內容，確認無誤後再送出');
+  return { ok:true };
+}
+function applyPendingFill(){
+  if (pendingFill){ const d = pendingFill; pendingFill = null; fillReport(d); }
+}
+window.fillReport = fillReport;   // 🤖 給本地 AI 呼叫的入口
+
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'FILL_REPORT') fillReport(e.data.payload || {});
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   🤖 AI 照片分析（後端 Agent）
+   ------------------------------------------------------------------
+   使用者只會看到「用 AI 分析並帶入表單」這顆按鈕。照片由後端
+   POST /api/ai-analyze 交給 Ollama 視覺模型判讀，並從資料庫的
+   categories 表挑選類別；本頁不直接連 Ollama。
+   分析成功後會依序：① 自動選類別 ② 自動填描述 ③ 自動抓目前位置。
+   ────────────────────────────────────────────────────────────────── */
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = () => reject(new Error('讀取照片失敗'));
+    r.readAsDataURL(file);
+  });
+}
+
+function useCurrentLocation(){
+  return new Promise(resolve => {
+    if (!navigator.geolocation){ toast('這個瀏覽器不支援定位'); return resolve(); }
+    $('geo').textContent = '定位中';
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        $('addr').value = p.coords.latitude.toFixed(5) + ', ' + p.coords.longitude.toFixed(5);
+        $('geo').textContent = '用目前位置'; preview(); resolve();
+      },
+      () => { $('geo').textContent = '用目前位置'; toast('拿不到位置，請手動輸入地址'); resolve(); }
+    );
+  });
+}
+$('geo').onclick = () => useCurrentLocation();
+
+$('analyzeBtn').addEventListener('click', async () => {
+  $('analyzeErr').textContent = '';
+  if (!picked.length){ $('analyzeErr').textContent = '先選至少一張照片，AI 才能判斷。'; return; }
+  if (!CATEGORIES.length){ $('analyzeErr').textContent = '類別還在載入，稍等一下再試。'; return; }
+
+  const btn = $('analyzeBtn');
+  btn.disabled = true; btn.textContent = '分析中…';
+  try {
+    const images = await Promise.all(picked.map(async p => {
+      const b64 = await fileToBase64(p.file);
+      return 'data:' + p.file.type + ';base64,' + b64;
+    }));
+    const res = await apiAnalyze(images);
+    const filled = fillReport({ category: res.key_name, description: res.description });
+    if (!filled.ok){ $('analyzeErr').textContent = filled.reason; return; }
+    await useCurrentLocation();
+    toast('已自動帶入類別、描述與目前位置，確認無誤後再送出');
+  } catch (e) {
+    $('analyzeErr').textContent = e.message.includes('Failed to fetch')
+      ? '連不上 AI 服務，請確認後端已啟動。'
+      : '分析失敗：' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '用 AI 分析並帶入表單';
+  }
+});
+
+(function fillFromUrl(){
+  const p = new URLSearchParams(location.search);
+  if (![...p.keys()].length) return;
+  fillReport({
+    account: p.get('account'),
+    category: p.get('category'),
+    description: p.get('description'),
+    address: p.get('address')
+  });
+})();
+
+function drawChips(){
+  $('chips').innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.setAttribute('aria-pressed','false');
+    b.style.setProperty('--c', c.color_code);
+    b.innerHTML = '<span class="dot"></span>' + esc(c.label);
+    b.onclick = () => {
+      selected = c.categories_id;
+      document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      preview();
+    };
+    $('chips').appendChild(b);
+  });
+}
+
+$('desc').addEventListener('input', e => { $('dcount').textContent = e.target.value.length; preview(); });
+$('addr').addEventListener('input', preview);
+$('acct').addEventListener('input', () => { preview(); refreshCases(); });
+
+$('drop').onclick = () => $('files').click();
+$('files').onchange = e => {
+  for (const f of e.target.files) {
+    if (picked.length >= MAX_IMAGES) { toast('最多 ' + MAX_IMAGES + ' 張照片'); break; }
+    picked.push({ file: f, url: URL.createObjectURL(f) });
+  }
+  e.target.value = ''; drawThumbs(); preview();
+};
+function drawThumbs(){
+  $('thumbs').innerHTML = '';
+  picked.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'thumb';
+    d.innerHTML = '<img alt="' + esc(p.file.name) + '" src="' + p.url + '">';
+    const x = document.createElement('button');
+    x.type='button'; x.textContent='×'; x.setAttribute('aria-label','移除 ' + p.file.name);
+    x.onclick = () => { URL.revokeObjectURL(p.url); picked.splice(i,1); drawThumbs(); preview(); };
+    d.appendChild(x); $('thumbs').appendChild(d);
+  });
+}
+
+
+
+/* 送出時實際給後端的 body — cases_id / created_at / status / embedding 都由後端決定 */
+function body(imagePaths){
+  return {
+    description: $('desc').value.trim(),
+    category_id: selected,
+    images: imagePaths && imagePaths.length ? imagePaths : null,
+    address: $('addr').value.trim() || null,
+    author_account: $('acct').value.trim()
+  };
+}
+
+function preview(){
+  const b = body(picked.map(p => 'https://storage.googleapis.com/community-reports/' + p.file.name));
+  $('json').textContent = JSON.stringify(b, null, 2);
+  $('sql').textContent =
+    'INSERT INTO cases\n' +
+    '  (cases_id, description, embedding, category_id, images,\n' +
+    '   status, created_at, author_account, address)\n' +
+    'VALUES\n' +
+    '  ($1, $2, $3::vector, ' + (b.category_id ?? '$4') + ', $5::jsonb,\n' +
+    "   'pending', $6, $7, $8)\n" +
+    'RETURNING *;';
+}
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const acct = $('acct').value.trim();
+  const desc = $('desc').value.trim();
+  let msg = '';
+  if (!acct) msg = '帳號不能空白。';
+  else if (!/^[A-Za-z0-9]+$/.test(acct)) msg = '帳號只能是英文字母和數字，不能有空格或符號。';
+  else if (!selected) msg = '先選一個申報類別。';
+  else if (desc.length < 10) msg = '描述至少寫 10 個字，承辦人才判斷得出來。';
+  $('err').textContent = msg;
+  if (msg) return;
+
+  $('send').disabled = true; $('send').textContent = '送出中…';
+  try {
+    const urls = await apiUploadImages(picked.map(p => p.file));   // 🔌 2
+    const row  = await apiCreateCase(body(urls));                  // 🔌 3
+    picked.forEach(p => URL.revokeObjectURL(p.url));
+    selected = null; picked = [];
+    $('desc').value = ''; $('addr').value = ''; $('dcount').textContent = '0';
+    document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed','false'));
+    drawThumbs(); preview(); refreshCases();
+    toast('已送出，案件編號 ' + row.cases_id);
+  } catch (err) {
+    $('err').textContent = err.message;
+  } finally {
+    $('send').disabled = false; $('send').textContent = '送出通報';
+  }
+});
+
+async function refreshCases(){
+  const acct = $('acct').value.trim();
+  if (!/^[A-Za-z0-9]+$/.test(acct)) { $('list').innerHTML = ''; return; }
+  try {
+    drawCases(await apiGetMyCases(acct));                          // 🔌 4
+  } catch (e) {
+    $('list').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  }
+}
+
+function drawCases(rows){
+  if (!rows.length){
+    $('list').innerHTML = '<div class="empty">這個帳號還沒有通報紀錄。上面填一筆，這裡就會出現。</div>';
+    return;
+  }
+  $('list').innerHTML = rows.map(c => {
+    const cat = CATEGORIES.find(x => x.categories_id === c.category_id);
+    const t = new Date(Number(c.created_at));
+    const when = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' +
+                 String(t.getDate()).padStart(2,'0') + ' ' +
+                 String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    return '<article class="case">' +
+      '<div class="case-top">' +
+        '<span class="tag"><span class="dot" style="background:' + (cat ? cat.color_code : '#6B7B77') + '"></span>' +
+          esc(cat ? cat.label : '未知類別') + '</span>' +
+        '<span class="status ' + esc(c.status) + '">' + (STATUS_LABEL[c.status] || esc(c.status)) + '</span>' +
+      '</div>' +
+      '<p>' + esc(c.description) + '</p>' +
+      (c.address ? '<p class="meta">' + esc(c.address) + '</p>' : '') +
+      '<p class="meta">#' + esc(c.cases_id) + ' · ' + when +
+        (c.images && c.images.length ? ' · ' + c.images.length + ' 張照片' : '') + '</p>' +
+      (c.reject_reason ? '<div class="reject">駁回原因：' + esc(c.reject_reason) + '</div>' : '') +
+    '</article>';
+  }).join('');
+}
+
+let toastTimer;
+function toast(m){
+  $('toast').textContent = m; $('toast').classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('on'), 2800);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   💬 AI 聊天助理 — 跟 main.py 是同一個 LangGraph Agent（POST /api/chat）
+   thread_id 存 sessionStorage：同一瀏覽器分頁的多輪對話會串接記憶。
+   ══════════════════════════════════════════════════════════════════ */
+function chatThreadId(){
+  const key = 'chat_thread_id';
+  let t = sessionStorage.getItem(key);
+  if (!t){
+    t = 'web_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    sessionStorage.setItem(key, t);
+  }
+  return t;
+}
+function addMsg(text, kind){
+  const d = document.createElement('div');
+  d.className = 'msg ' + kind;
+  d.textContent = text;
+  $('chatMsgs').appendChild(d);
+  $('chatMsgs').scrollTop = $('chatMsgs').scrollHeight;
+  return d;
+}
+function chatSetBusy(b){
+  $('chatSend').disabled = b;
+  $('chatInput').disabled = b;
+}
+async function sendChat(){
+  const input = $('chatInput');
+  const text = input.value.trim();
+  if (!text || $('chatSend').disabled) return;
+  input.value = '';
+  addMsg(text, 'me');
+  const typing = addMsg('思考中…', 'typing');
+  chatSetBusy(true);
+  try {
+    const r = await fetch(API_BASE + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, thread_id: chatThreadId() })
+    });
+    typing.remove();
+    if (r.ok){
+      const data = await r.json();
+      addMsg(data.reply || '（沒有回覆）', 'bot');
+    } else {
+      const d = await r.json().catch(() => null);
+      throw new Error(d && d.detail ? d.detail : 'AI 回覆失敗（' + r.status + '）');
+    }
+  } catch (e) {
+    typing.remove();
+    addMsg('連不上 AI 服務：' + e.message, 'err');
+  } finally {
+    chatSetBusy(false);
+    $('chatInput').focus();
+  }
+}
+$('chatFab').onclick = () => { $('chat').classList.add('open'); $('chatInput').focus(); };
+$('chatClose').onclick = () => $('chat').classList.remove('open');
+$('chatSend').onclick = sendChat;
+$('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); sendChat(); } });
+document.querySelectorAll('#chatQuick button').forEach(b =>
+  b.onclick = () => { $('chatInput').value = b.textContent; sendChat(); });
+addMsg('你好，我是社區小尖兵。可以說明通報流程、查你帳號的案件，或搜尋資訊。', 'bot');
+
+boot();
+</script>
+</body>
+</html>

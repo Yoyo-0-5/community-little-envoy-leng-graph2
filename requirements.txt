@@ -1,0 +1,11 @@
+langgraph
+langchain-ollama
+langchain-tavily
+tavily-python
+sqlalchemy
+psycopg[binary]
+python-dotenv
+fastapi
+uvicorn
+python-multipart
+google-cloud-storage

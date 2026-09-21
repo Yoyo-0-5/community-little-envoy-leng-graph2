@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 .env
+gcs-api-*.json
+cachyos-x8664.tail3babf5.ts.net.crt
+cachyos-x8664.tail3babf5.ts.net.key
