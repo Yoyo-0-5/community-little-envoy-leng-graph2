@@ -1,4 +1,6 @@
+import hashlib
 import json
+import os
 import random
 import time
 
@@ -11,6 +13,22 @@ _CASE_COLUMNS = (
     "cases_id, description, category_id, images, status, created_at, "
     "author_account, address, reject_reason"
 )
+
+
+def _ensure_user(connection, account: str) -> None:
+    """帳號第一次通報時自動建立 resident 身份，避免 cases 外鍵失敗。
+
+    密碼放無法登入的隨機佔位值；之後做登入／註冊再補真密碼。
+    """
+    placeholder = "!" + hashlib.sha256(os.urandom(16)).hexdigest()
+    connection.execute(
+        text(
+            "INSERT INTO users (account, password, name, role) "
+            "VALUES (:account, :password, :account, 'resident') "
+            "ON CONFLICT (account) DO NOTHING"
+        ),
+        {"account": account, "password": placeholder},
+    )
 
 
 def create_case(
@@ -28,6 +46,7 @@ def create_case(
     vector_literal = "[" + ",".join(repr(v) for v in embedding) + "]"
 
     with engine.begin() as connection:
+        _ensure_user(connection, author_account)
         row = connection.execute(
             text(
                 "INSERT INTO cases "
