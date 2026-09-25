@@ -67,6 +67,22 @@ def _last_ai_text(messages) -> str:
     return ""
 
 
+def _turn_reply(messages) -> str:
+    """本輪 supervisor 可能派了多位專家，把他們的回報依序合併成一段回覆。"""
+    reports: list[str] = []
+    for m in reversed(messages):
+        if getattr(m, "type", "") == "human":
+            break
+        if getattr(m, "type", "") == "ai" and getattr(m, "name", None):
+            text = str(m.content or "").strip()
+            if text:
+                reports.append(text)
+    reports.reverse()
+    if not reports:
+        return _last_ai_text(messages)
+    return "\n\n---\n\n".join(reports)
+
+
 @app.get("/api/categories")
 def get_categories():
     try:
@@ -98,7 +114,7 @@ def chat(req: ChatRequest):
             {"messages": [("user", message)]},
             config={"configurable": {"thread_id": req.thread_id or "web_session_01"}},
         )
-        reply = _last_ai_text(result["messages"])
+        reply = _turn_reply(result["messages"])
     except HTTPException:
         raise
     except Exception as e:

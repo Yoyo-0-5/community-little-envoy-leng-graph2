@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy import text
 
-from app.agent.graph import build_agent
+from app.agent.graph import build_vision_agent
 from app.db import engine
 
 
@@ -56,7 +56,7 @@ def analyze_images(images: list[str]) -> dict:
         ],
     ]
 
-    app = build_agent()
+    app = build_vision_agent()
     config = {"configurable": {"thread_id": f"analyze_{uuid.uuid4().hex}"}}
     result = app.invoke({"messages": [{"role": "user", "content": content}]}, config=config)
 

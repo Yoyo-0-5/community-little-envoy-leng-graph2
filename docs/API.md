@@ -22,7 +22,7 @@
 | POST | `/api/uploads` | 上傳照片（multipart） | 照片選取後送出 |
 | POST | `/api/cases` | 建立通報案件 | 表單送出 |
 | GET | `/api/cases?author_account=` | 查詢某帳號的案件 | 「我的通報」清單 |
-| POST | `/api/chat` | 社區小尖兵 AI 聊天（與 `main.py` 同一個 Agent） | 右下角浮動對話框 |
+| POST | `/api/chat` | 社區小尖兵 AI 聊天（Supervisor 多智能體，與 `main.py` 同一個 Agent） | 右下角浮動對話框 |
 
 另有 `POST /api/login` 已在網頁原始碼預留語法，但**尚未接上表單、後端也未實作**（暫以 mock 回傳）。
 
@@ -256,7 +256,19 @@ curl 'http://localhost:8000/api/cases?author_account=test1'
 
 ## 6. POST /api/chat
 
-社區小尖兵 AI 聊天。就是 `main.py` 的那個 LangGraph Agent（Ollama + DB 工具 + Tavily 搜尋），搬到網頁上。同一個 `thread_id` 的多輪問題會串接對話記憶（存在伺服器程序中）。
+社區小尖兵 AI 聊天。就是 `main.py` 的那個 LangGraph Agent，搬到網頁上。同一個 `thread_id` 的多輪問題會串接對話記憶（存在伺服器程序中）。
+
+架構是 **Supervisor 多智能體**（`app/agent/graph.py`）：`supervisor` 節點不動手查資料，只決定要喚醒哪位專家；專家做完回報，`supervisor` 再決定下一步，全部完成才 `FINISH` 結束。
+
+| 節點 | 工具 | 負責 |
+|------|------|------|
+| `supervisor` | 無 | 只做路由，輸出 `plan`（本輪需要哪些專家）與 `next`（下一位） |
+| `DB_Expert` | `query_community_database` | 寫 SQL 查 `cases` / `users` / `categories` |
+| `Researcher` | `tavily_tool` | Tavily 聯網搜尋外部即時資訊 |
+
+路由規則：派工清單由程式端排隊（`plan` 內還沒回報的專家依序執行），單輪最多派 4 次防迴圈；一輪最多回報 2 位專家。
+回覆內容是本輪所有專家回報的合併（多位專家以 `---` 分隔）。
+`/api/ai-analyze` 的照片辨識走另一條路徑 `build_vision_agent()`（單一 react agent，會看到圖片），不經過 supervisor。
 
 - **網頁對應**：右下角浮動「AI」按鈕 → `sendChat()`
 - **後端**：`app/server.py:90`

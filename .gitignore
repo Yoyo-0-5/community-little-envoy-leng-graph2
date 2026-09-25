@@ -1,6 +1,20 @@
 .venv/
 __pycache__/
+*.pyc
+
+# 環境變數（TAVILY / DATABASE_URL / OLLAMA / GCS）
 .env
+.env.*
+!.env.example
+
+# 雲端金鑰
 gcs-api-*.json
-cachyos-x8664.tail3babf5.ts.net.crt
-cachyos-x8664.tail3babf5.ts.net.key
+service-account*.json
+*.pem
+
+# Tailscale HTTPS 憑證（檔名會變，用萬用字串擋）
+*.ts.net.crt
+*.ts.net.key
+
+# 居民上傳的通報照片（本機 storage backend 會寫在這裡）
+data/
