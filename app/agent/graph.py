@@ -2,6 +2,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
@@ -147,11 +148,51 @@ def _build_expert_node(agent, expert_name: str):
         else:
             payload = {"messages": messages}
 
+        # 專家正文逐字往外送，讓前端能顯示打字機效果。
+        # 同步 invoke() 不會向 Ollama 要求串流，token 只會在整段跑完後一次湧出，
+        # 所以這裡改用 stream()，並把 LLM 的 token 用自訂事件轉給上層。
+        # 沒有串流監聽時（例如 main.py、/api/chat）writer 會丟棄，不影響結果。
+        try:
+            writer = get_stream_writer()
+        except RuntimeError:      # 不在 LangGraph run 內（例如單獨測試節點）
+            writer = None
+
+        streamed = False
+        reply = ""
+        # 專家決定要去查資料時不會有任何可顯示的字，這段常常要 10 秒以上，
+        # 要另外送一個狀態，否則使用者只會看到畫面不動。
+        tool_status = "正在查資料庫…" if expert_name == DB_EXPERT else "正在搜尋外部資料…"
         # qwen 偶爾會吐空字串，重試一次；仍為空就回報失敗字串，讓 supervisor 換人。
         for _ in range(2):
-            reply = _last_ai_text(agent.invoke(payload)["messages"])
+            final: dict = {}
+            said_tool = False
+            # values 拿得到 sub-graph 的最終 state，正文以它為準；streamed 只是提前送給前端看。
+            for mode, item in agent.stream(payload, stream_mode=["messages", "values"]):
+                if mode == "values":
+                    final = item
+                    continue
+                chunk, meta = item
+                where = meta.get("langgraph_node")
+                if where == "tools" or getattr(chunk, "tool_call_chunks", None):
+                    # sub-graph 內部只有 agent（模型）與 tools（工具）兩種節點；
+                    # 工具的 JSON 回傳不是給人看的回答。
+                    if not said_tool and writer is not None:
+                        said_tool = True
+                        writer({"status": tool_status})
+                    continue
+                if where != "agent":
+                    continue
+                text = chunk.text if hasattr(chunk, "text") else ""
+                if not text or writer is None:
+                    continue
+                streamed = True
+                writer({"expert": expert_name, "text": text})
+            reply = _last_ai_text(final.get("messages", []))
             if reply:
                 break
+            if streamed and writer is not None:
+                # 這一輪等一下要重試，先叫前端把剛才那半截清掉，免得兩次內容疊在一起。
+                writer({"expert": expert_name, "reset": True})
         # 只把結論帶回主圖，中間的 tool 訊息留在 sub-graph 內，避免主圖膨脹。
         return {
             "messages": [

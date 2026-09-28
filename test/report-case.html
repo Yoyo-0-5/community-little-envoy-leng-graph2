@@ -748,7 +748,7 @@ function toast(m){
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   💬 AI 聊天助理 — 跟 main.py 是同一個 LangGraph Agent（POST /api/chat）
+   💬 AI 聊天助理 — 跟 main.py 是同一個 LangGraph Agent（POST /api/chat/stream，SSE 進度）
    thread_id 存 sessionStorage：同一瀏覽器分頁的多輪對話會串接記憶。
    ══════════════════════════════════════════════════════════════════ */
 function chatThreadId(){
@@ -773,9 +773,41 @@ function addMsg(text, kind){
   $('chatMsgs').scrollTop = $('chatMsgs').scrollHeight;
   return d;
 }
+/* 串流中的氣泡：累積字串後重跑 markdown 解析，每幀最多重繪一次。 */
+function addStreamBubble(){
+  const b = { el: addMsg('', 'bot'), text: '', frame: 0 };
+  b.paint = () => {
+    b.el.innerHTML = DOMPurify.sanitize(marked.parse(b.text, { breaks: true }));
+    $('chatMsgs').scrollTop = $('chatMsgs').scrollHeight;
+  };
+  b.append = (t) => {
+    b.text += t;
+    if (!b.frame) b.frame = requestAnimationFrame(() => { b.frame = 0; b.paint(); });
+  };
+  b.finish = (t) => { b.text = t; b.paint(); };
+  return b;
+}
 function chatSetBusy(b){
   $('chatSend').disabled = b;
   $('chatInput').disabled = b;
+}
+/* SSE 是用 fetch + POST 送的（EventSource 只能 GET），所以要自己讀 body 切 frame。 */
+function parseChatFrame(frame){
+  let event = 'message', data = '';
+  for (const line of frame.split(/\r?\n/)){
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) data += line.slice(5).trim();
+  }
+  if (!data) return null;
+  try { return { event, data: JSON.parse(data) }; } catch { return null; }
+}
+/* 路由不存在（伺服器沒重啟）跟真的連不上網路要講不同的話，
+   否則舊行程的 404 {"detail":"Not Found"} 會被顯示成「連不上 AI 服務：Not Found」。 */
+function chatHttpError(status, detail){
+  if (status === 404) return '這個後端還沒有串流功能，請重啟伺服器（python server.py）後再試。';
+  if (status === 400) return detail || '請求不正確。';
+  if (status >= 500) return (detail || '伺服器錯誤') + '（' + status + '）';
+  return detail || 'AI 回覆失敗（' + status + '）';
 }
 async function sendChat(){
   const input = $('chatInput');
@@ -783,24 +815,54 @@ async function sendChat(){
   if (!text || $('chatSend').disabled) return;
   input.value = '';
   addMsg(text, 'me');
-  const typing = addMsg('思考中…', 'typing');
+  const status = addMsg('思考中…', 'typing');
   chatSetBusy(true);
+  let bubble = null, expert = '', reply = '', failure = '';
   try {
-    const r = await fetch(API_BASE + '/chat', {
+    const r = await fetch(API_BASE + '/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
       body: JSON.stringify({ message: text, thread_id: chatThreadId() })
     });
-    typing.remove();
-    if (r.ok){
-      const data = await r.json();
-      addMsg(data.reply || '（沒有回覆）', 'bot');
-    } else {
+    if (!r.ok || !r.body){
       const d = await r.json().catch(() => null);
-      throw new Error(d && d.detail ? d.detail : 'AI 回覆失敗（' + r.status + '）');
+      status.remove();
+      addMsg(chatHttpError(r.status, d && d.detail), 'err');   // HTTP 層錯誤不要冠「連不上」
+      return;
     }
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    for (;;){
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const frames = buf.split(/\r?\n\r?\n/);   // 最後一段可能還沒收完，先留著
+      buf = frames.pop();
+      for (const f of frames){
+        const p = parseChatFrame(f);
+        if (!p) continue;
+        if (p.event === 'status'){ if (status.isConnected) status.textContent = p.data.text || ''; }
+        else if (p.event === 'reset'){ if (bubble) bubble.text = ''; }
+        else if (p.event === 'delta'){
+          if (p.data.expert && p.data.expert !== expert){   // 換專家 → 依 _turn_reply 的分隔方式
+            if (bubble && bubble.text) bubble.append('\n\n---\n\n');
+            expert = p.data.expert;
+          }
+          if (!bubble){ status.remove(); bubble = addStreamBubble(); }
+          bubble.append(p.data.text || '');
+        }
+        else if (p.event === 'done') reply = p.data.reply || '';
+        else if (p.event === 'error') failure = p.data.message || 'AI 回覆失敗';
+      }
+    }
+    status.remove();
+    if (bubble) bubble.finish(reply || bubble.text);       // 以伺服器合併好的結果收尾
+    if (failure) addMsg(failure, 'err');
+    else if (!bubble) addMsg(reply || '（沒有回覆）', 'bot');
   } catch (e) {
-    typing.remove();
+    status.remove();
+    if (bubble) bubble.finish(reply || bubble.text);
     addMsg('連不上 AI 服務：' + e.message, 'err');
   } finally {
     chatSetBusy(false);

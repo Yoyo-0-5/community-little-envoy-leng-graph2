@@ -1,11 +1,14 @@
+import json
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.agent.state import DB_EXPERT, MEMBERS, RESEARCHER
 from app.analyze import analyze_images, list_categories
 from app.agent.graph import build_agent
 from app.cases import create_case, list_cases_by_account
@@ -83,6 +86,19 @@ def _turn_reply(messages) -> str:
     return "\n\n---\n\n".join(reports)
 
 
+# 專家節點開始跑之前就先把進度講出來，不用等整段回覆生成完。
+_EXPERT_STATUS = {
+    DB_EXPERT: "正在查資料庫…",
+    RESEARCHER: "正在搜尋外部資料…",
+}
+# 串流幀的最短間隔：一個中文字一個 SSE 事件太碎，前端重繪也划不來。
+_STREAM_FLUSH_SECONDS = 0.08
+
+
+def _sse(event: str, **data) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @app.get("/api/categories")
 def get_categories():
     try:
@@ -122,6 +138,77 @@ def chat(req: ChatRequest):
     if not reply:
         raise HTTPException(status_code=500, detail="AI 沒有回覆內容，請再試一次。")
     return {"reply": reply}
+
+
+@app.post("/api/chat/stream")
+def chat_stream(req: ChatRequest):
+    """跟 /api/chat 同一個 Agent，但用 SSE 送「進度 + 正文 token」。
+
+    Supervisor 一次問題會呼叫模型多次（路由 → 專家 → 路由），整段跑完要十幾秒；
+    光有進度事件不夠，因為最慢的一段（生答案的十幾秒）完全包在一個節點裡面。
+    這裡同時送兩種事件：status（節點邊界）與 delta（專家正文逐字），
+    token 由 app/agent/graph.py 的專家節點用 stream() 取，再用自訂事件往外轉。
+    """
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="請輸入訊息。")
+
+    agent = _get_chat_agent()
+    config = {"configurable": {"thread_id": req.thread_id or "web_session_01"}}
+
+    def events():
+        yield _sse("status", text="正在思考…")
+        # token 一個中文字一個事件太碎，累積到一定長度或一定時間再送一幀。
+        pending, last_flush = "", time.monotonic()
+        try:
+            for mode, item in agent.stream(
+                {"messages": [("user", message)]},
+                config=config,
+                stream_mode=["updates", "custom"],
+            ):
+                now = time.monotonic()
+                if mode == "custom":
+                    if item.get("status"):
+                        if pending:                      # 順序不能顛倒，先把已累積的字送出去
+                            yield _sse("delta", expert="", text=pending)
+                            pending, last_flush = "", now
+                        yield _sse("status", text=item["status"])
+                    elif item.get("reset"):
+                        yield _sse("reset", expert=item.get("expert", ""))
+                    elif item.get("text"):
+                        pending += item["text"]
+                    if not pending or now - last_flush < _STREAM_FLUSH_SECONDS:
+                        continue
+                    yield _sse("delta", expert=item.get("expert", ""), text=pending)
+                    pending, last_flush = "", now
+                    continue
+                for node, patch in (item or {}).items():
+                    if node == "supervisor":
+                        upcoming = (patch or {}).get("next")
+                        if upcoming in _EXPERT_STATUS:
+                            yield _sse("status", text=_EXPERT_STATUS[upcoming])
+                    elif node in MEMBERS:
+                        yield _sse("status", text="正在整理回覆…")
+            if pending:
+                yield _sse("delta", expert="", text=pending)
+            messages = agent.get_state(config).values.get("messages", [])
+            reply = _turn_reply(messages)
+        except Exception as e:
+            if pending:
+                yield _sse("delta", expert="", text=pending)
+            yield _sse("error", message=f"AI 回覆失敗: {e}")
+            return
+        if not reply:
+            yield _sse("error", message="AI 沒有回覆內容，請再試一次。")
+            return
+        yield _sse("done", reply=reply)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        # X-Accel-Buffering: nginx 預設會緩衝 SSE，沒這行就又變成一次整段送出。
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/uploads")

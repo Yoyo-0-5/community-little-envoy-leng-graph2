@@ -22,7 +22,8 @@
 | POST | `/api/uploads` | 上傳照片（multipart） | 照片選取後送出 |
 | POST | `/api/cases` | 建立通報案件 | 表單送出 |
 | GET | `/api/cases?author_account=` | 查詢某帳號的案件 | 「我的通報」清單 |
-| POST | `/api/chat` | 社區小尖兵 AI 聊天（Supervisor 多智能體，與 `main.py` 同一個 Agent） | 右下角浮動對話框 |
+| POST | `/api/chat` | 社區小尖兵 AI 聊天（Supervisor 多智能體，與 `main.py` 同一個 Agent） | — |
+| POST | `/api/chat/stream` | 同上，但以 SSE 逐步送進度事件 | 右下角浮動對話框 |
 
 另有 `POST /api/login` 已在網頁原始碼預留語法，但**尚未接上表單、後端也未實作**（暫以 mock 回傳）。
 
@@ -271,7 +272,7 @@ curl 'http://localhost:8000/api/cases?author_account=test1'
 `/api/ai-analyze` 的照片辨識走另一條路徑 `build_vision_agent()`（單一 react agent，會看到圖片），不經過 supervisor。
 
 - **網頁對應**：右下角浮動「AI」按鈕 → `sendChat()`
-- **後端**：`app/server.py:90`
+- **後端**：`app/server.py:119`（網頁實際走的是 `POST /api/chat/stream`，見第 7 節）
 
 **Request**（JSON）
 
@@ -309,6 +310,69 @@ curl -X POST http://localhost:8000/api/chat \
 > 首次呼叫需載入 Ollama 模型，可能等幾秒到十幾秒。多輪對話務必沿用同一個 `thread_id`。
 
 ---
+
+## 7. POST /api/chat/stream
+
+跟 `/api/chat` 是同一個 Agent、同一組參數，差別在回應格式：**Server-Sent Events**，先送進度事件，再逐字送專家正文，最後補一次完整回覆。
+
+Supervisor 一次問題會呼叫模型多次（路由 → 專家 → 路由），整段跑完常要 20 秒以上。若等到最後才回應，畫面就是一個「思考中」停住；只送節點進度也不夠，因為最慢的一段（生答案）完全包在單一節點裡面，所以正文也一起串流。
+
+- **網頁對應**：`sendChat()` → `parseChatFrame()` / `chatHttpError()`
+- **後端**：`app/server.py:140`
+
+**Request**（JSON）：同 `/api/chat`
+
+**回應**：`text/event-stream`，每個事件形如 `event: <名稱>\ndata: <JSON>\n\n`
+
+| event | data | 觸發時機 |
+|-------|------|----------|
+| `status` | `{"text": "正在思考…"}` | 請求剛進來 |
+| `status` | `{"text": "正在查資料庫…"}` / `"正在搜尋外部資料…"` | supervisor 決定派給哪位專家（依 `next` 欄位判斷） |
+| `status` | 同上 | 專家決定要去呼叫工具（ReAct 決策期沒有任何可顯示的字） |
+| `delta` | `{"expert": "Researcher", "text": "以下是路"}` | 專家正文逐字，每幀約 0.08 秒／10～15 字 |
+| `status` | `{"text": "正在整理回覆…"}` | 專家回報完成，supervisor 收尾中 |
+| `reset` | `{"expert": "DB_Expert"}` | 該專家第一輪回空字、準備重試，叫前端清掉已送出的半截 |
+| `done` | `{"reply": "…markdown…"}` | 全部完成，回覆已合併（多位專家以 `---` 分隔） |
+| `error` | `{"message": "AI 回覆失敗: …"}` | 節點或工具例外 |
+
+`reply` 是權威答案，前端在 `done` 時用它覆蓋串流中已顯示的內容，因此中途過濾或重送都不會殘留錯字。
+
+空白 `message` 仍在串流開始前就回 `400 { "detail": "請輸入訊息。" }`（非 SSE）。
+
+回應頭另帶 `Cache-Control: no-cache` 與 `X-Accel-Buffering: no`：nginx 預設會緩衝 SSE，沒有後者會讓事件又變回一次整段送出。
+
+```bash
+curl -N -X POST http://localhost:8000/api/chat/stream \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message":"路燈壞了要怎麼通報？","thread_id":"my_thread"}'
+```
+
+前端因是 POST，不能用 `EventSource`，改用 `fetch` + `response.body.getReader()` 讀 `ReadableStream`，再以空行切 frame（frame 可能被切成兩次 chunk 讀到，要保留殘段）。收到 `delta` 就 append 文字，用 `requestAnimationFrame` 節流後重跑 `marked.parse`（每個字重解析一次會卡）。
+
+### 為什麼要改專家節點
+
+`app/agent/graph.py` 的專家節點原本呼叫 `agent.invoke()`。**同步 `invoke()` 不會向 Ollama 要求串流**，token 只會在整段跑完後一次湧出（實測 5 個 chunk 同時抵達）；改成 `agent.stream(..., stream_mode=["messages", "values"])` 才會逐字送出。`values` 用來取得 sub-graph 的最終 state，寫進記憶體的仍是權威訊息，串流只供前端顯示。
+
+過濾規則：sub-graph 內部只有 `agent`（模型）與 `tools`（工具）兩種節點，只送 `agent` 的文字，工具的 JSON 回傳與 ReAct 決策期不顯示。
+
+沒有串流監聽時（`main.py`、`/api/chat`）writer 會丟棄事件，行為與改動前相同。
+
+### 已知延遲
+
+模型是遠端 Ollama 的 `qwen3.8-16k`（約 17GB VRAM），實測一次「路燈壞了要怎麼通報？」：
+
+| 階段 | 耗時 |
+|------|------|
+| supervisor 路由 | 2.9s |
+| 專家決定要搜尋 | 2.6s |
+| 首次關鍵詞延遲 | 7.2s |
+| 輸出 826 字（打字機） | 8.3s |
+
+首字前無法再壓低（模型要先 decide 要不要搜、prefill 長 prompt）；首字之後幾乎沒有停頓。要縮短首字時間只能換小模型，見 `OLLAMA_MODEL`。
+
+---
+
 
 ## 附錄 A：頁面自己受用的靜態路徑
 
