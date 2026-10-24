@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+gcs-api-*.json
+service-account*.json
+*.ts.net.crt
+*.ts.net.key
+.git
+Dockerfile
+.dockerignore

@@ -2,21 +2,29 @@ import json
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.agent.state import DB_EXPERT, MEMBERS, RESEARCHER
 from app.analyze import analyze_images, list_categories
 from app.agent.graph import build_agent
 from app.cases import create_case, list_cases_by_account
 from app.config import LOCAL_UPLOAD_DIR, STORAGE_BACKEND
+from app.events import get_event, list_events
+from app.image_location import ImageMetadataError
+from app.places import PlacesProviderError, reverse_geocode, search_places
 from app.storage import save_upload
+from app.welfare import WelfareSearchError, search_welfare
+from app.weather import WeatherProviderError, get_weather
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEST_DIR = BASE_DIR / "test"
+# 整合後的 Vue 前端（monorepo 結構：backend/ 的上一層是 frontend/）。
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 app = FastAPI(title="社區小尖兵 AI Agent")
 
@@ -113,6 +121,8 @@ def ai_analyze(req: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="至少需要一張照片，AI 才能分析。")
     try:
         return analyze_images(req.images)
+    except ImageMetadataError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -256,6 +266,96 @@ def get_my_cases(author_account: str):
         raise HTTPException(status_code=500, detail=f"案件查詢失敗: {e}")
 
 
+@app.get("/api/events")
+def get_events(
+    time: str = Query(default="month", pattern="^(today|week|month|all)$"),
+    event_type: str | None = Query(default=None, alias="type"),
+    status: str | None = None,
+    region: str | None = None,
+    filter_region: str | None = Query(default=None, alias="filterRegion"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """列出社區通報事件，回傳前端 Event 清單格式。"""
+    try:
+        return list_events(
+            time_filter=time,
+            event_type=event_type,
+            status=status,
+            region=region,
+            filter_region=filter_region,
+            limit=limit,
+            offset=offset,
+        )
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"事件查詢失敗: {e}")
+
+
+@app.get("/api/places")
+def get_places(q: str = Query(default="")):
+    """以文字搜尋台灣地點，供申報位置挑選使用。"""
+    if len(q) > 200:
+        raise HTTPException(status_code=422, detail="地點搜尋文字不可超過 200 個字。")
+    try:
+        return search_places(q)
+    except PlacesProviderError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+@app.get("/api/places/reverse")
+def get_place_address(
+    lat: float = Query(ge=-90, le=90),
+    lng: float = Query(ge=-180, le=180),
+):
+    """將地圖座標轉成地址文字。"""
+    try:
+        return {"address": reverse_geocode(lat, lng)}
+    except PlacesProviderError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/events/{event_id}")
+def get_event_detail(event_id: str):
+    """取得一筆社區事件；未知或已拒絕案件回傳 null。"""
+    try:
+        return get_event(event_id)
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"事件查詢失敗: {e}")
+
+
+@app.get("/api/welfare")
+def get_welfare(
+    event_type: str | None = Query(default=None, alias="type"),
+    target: str | None = None,
+    time: str | None = Query(default=None, pattern="^(today|week|month|all)$"),
+    region: str | None = None,
+):
+    """搜尋中央／地方政府及社區發布的福利與活動資訊。"""
+    try:
+        return search_welfare(
+            event_type=event_type,
+            target=target,
+            time=time,
+            region=region,
+        )
+    except WelfareSearchError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+@app.get("/api/weather")
+def get_current_weather(
+    lat: float = Query(ge=-90, le=90),
+    lng: float = Query(ge=-180, le=180),
+):
+    """依瀏覽器提供的 GPS 座標查詢 Open-Meteo 目前天氣。"""
+    try:
+        return get_weather(lat, lng)
+    except WeatherProviderError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 LOCAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=LOCAL_UPLOAD_DIR), name="uploads")
 
@@ -264,4 +364,27 @@ app.mount("/test", StaticFiles(directory=TEST_DIR), name="test")
 
 @app.get("/")
 def index():
+    """整合後根路徑直接服務 Vue 前端；測試頁仍保留在 /test/。"""
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
     return RedirectResponse(url="/test/report-case.html")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    """Vue history 路由 fallback：認得的靜態檔直接回，其餘回 index.html。
+
+    註冊在所有 route / mount 之後（/api、/uploads、/test），才不會蓋掉後端路由。
+    frontend/dist 未建置時回 404，後端仍可單獨啟動。
+    """
+    if full_path == "api" or full_path.startswith("api/"):
+        return JSONResponse({"detail": "API endpoint not found"}, status_code=404)
+    if FRONTEND_DIST.is_dir():
+        candidate = FRONTEND_DIST / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        index_file = FRONTEND_DIST / "index.html"
+        if index_file.is_file():
+            return FileResponse(index_file)
+    return JSONResponse({"detail": "前端尚未建置：請先 cd frontend && npm run build"}, status_code=404)

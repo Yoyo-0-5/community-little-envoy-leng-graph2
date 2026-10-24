@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from app.agent.graph import build_vision_agent
 from app.db import engine
+from app.image_location import extract_image_location
 
 
 def list_categories() -> list[dict]:
@@ -31,6 +32,7 @@ def _extract_json(text_content: str) -> dict | None:
 
 def analyze_images(images: list[str]) -> dict:
     """用 LangGraph Agent（含 DB 工具）分析照片，回傳類別與描述。"""
+    location = extract_image_location(images)
     categories = list_categories()
     cat_hint = ", ".join(
         f"{c['key_name']}({c['label']})" for c in categories
@@ -66,6 +68,7 @@ def analyze_images(images: list[str]) -> dict:
         return {
             "error": "AI 無法解析回覆，請再試一次。",
             "raw": str(raw)[:500],
+            "location": location,
         }
 
     key_name = str(parsed.get("category", "")).strip().lower()
@@ -79,4 +82,5 @@ def analyze_images(images: list[str]) -> dict:
         "key_name": category["key_name"],
         "label": category["label"],
         "description": description,
+        "location": location,
     }

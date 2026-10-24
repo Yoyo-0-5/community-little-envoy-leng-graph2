@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
